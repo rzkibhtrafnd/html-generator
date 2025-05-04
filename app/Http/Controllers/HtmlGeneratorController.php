@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Upload;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use ZipArchive;
 use Illuminate\Support\Facades\Storage;
 
@@ -18,69 +20,119 @@ class HtmlGeneratorController extends Controller
     public function generate(Request $request)
     {
         $request->validate([
-            'data_file' => 'required|file|mimes:xlsx,csv',
+            'data_file' => 'required|file|mimes:xlsx',
             'template_text' => 'required|string',
         ]);
-
+    
         try {
-            // Simpan file Excel
             $dataPath = $request->file('data_file')->store('uploads');
             $templateContent = $request->input('template_text');
-
-            // Baca data Excel
-            $data = Excel::toArray([], Storage::path($dataPath))[0];
+    
+            // Load spreadsheet
+            $spreadsheet = IOFactory::load(Storage::path($dataPath));
+            $worksheet = $spreadsheet->getActiveSheet();
+    
+            // Extract headers
+            $headers = [];
+            $highestColumn = $worksheet->getHighestColumn();
+            $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
             
-            if (count($data) < 1) {
-                throw new \Exception("File Excel kosong atau format tidak valid");
+            for ($col = 1; $col <= $highestColumnIndex; $col++) {
+                $header = $worksheet->getCellByColumnAndRow($col, 1)->getValue();
+                $headers[$col] = trim($header);
             }
-
-            // Ambil header dan data
-            $headers = array_map('trim', array_shift($data));
+            
+            // Get highest row
+            $highestRow = $worksheet->getHighestRow();
+            
+            // Initialize rows array
             $rows = [];
             
-            foreach ($data as $row) {
-                if (count($row) !== count($headers)) {
-                    \Log::error("Jumlah kolom tidak sesuai dengan header", ['row' => $row]);
-                    continue;
+            // Create mapping of images by coordinates
+            $imageMapping = [];
+            $drawings = $worksheet->getDrawingCollection();
+            
+            foreach ($drawings as $drawing) {
+                $coordinates = $drawing->getCoordinates();
+                list($col, $row) = Coordinate::coordinateFromString($coordinates);
+                $colIndex = Coordinate::columnIndexFromString($col);
+                
+                // Get image content and convert to base64
+                $imageContents = null;
+                $imageExtension = 'png'; // Default extension
+                
+                if ($drawing instanceof \PhpOffice\PhpSpreadsheet\Worksheet\Drawing) {
+                    $zipReader = fopen($drawing->getPath(), 'r');
+                    if ($zipReader !== false) {
+                        $imageContents = stream_get_contents($zipReader);
+                        fclose($zipReader);
+                        
+                        // Get file extension
+                        $extension = pathinfo($drawing->getPath(), PATHINFO_EXTENSION);
+                        if (!empty($extension)) {
+                            $imageExtension = strtolower($extension);
+                        }
+                    }
+                } elseif ($drawing instanceof \PhpOffice\PhpSpreadsheet\Worksheet\MemoryDrawing) {
+                    ob_start();
+                    call_user_func(
+                        $drawing->getRenderingFunction(),
+                        $drawing->getImageResource()
+                    );
+                    $imageContents = ob_get_contents();
+                    ob_end_clean();
                 }
-                $rows[] = array_combine($headers, $row);
+                
+                if ($imageContents) {
+                    $base64 = 'data:image/' . $imageExtension . ';base64,' . base64_encode($imageContents);
+                    $imageMapping[$row][$colIndex] = $base64;
+                }
             }
-
-            if (empty($rows)) {
-                throw new \Exception("Tidak ada data yang valid untuk diproses");
+            
+            // Extract data rows with text and images
+            for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+                $rowData = [];
+                
+                for ($colIndex = 1; $colIndex <= $highestColumnIndex; $colIndex++) {
+                    $value = $worksheet->getCellByColumnAndRow($colIndex, $rowIndex)->getValue();
+                    
+                    // If there's an image at this cell, use the image instead of text
+                    if (isset($imageMapping[$rowIndex][$colIndex])) {
+                        $value = $imageMapping[$rowIndex][$colIndex];
+                    }
+                    
+                    if (isset($headers[$colIndex])) {
+                        $rowData[$headers[$colIndex]] = $value;
+                    }
+                }
+                
+                $rows[] = $rowData;
             }
-
-            // Siapkan direktori
+    
+            // ZIP generation
             $uploadId = uniqid();
             $previewDir = "previews/{$uploadId}";
             $zipName = "hasil_{$uploadId}.zip";
-            
             Storage::disk('public')->makeDirectory('results');
             $zipPath = Storage::disk('public')->path("results/{$zipName}");
-
             Storage::makeDirectory($previewDir);
-
+    
             $zip = new ZipArchive;
             if ($zip->open($zipPath, ZipArchive::CREATE) === TRUE) {
                 foreach ($rows as $i => $row) {
                     $html = $templateContent;
-                    
                     foreach ($row as $key => $val) {
                         $pattern = '/\{\{\s*' . preg_quote(trim($key), '/') . '\s*\}\}/';
                         $html = preg_replace($pattern, $val, $html);
                     }
-
+    
                     $filename = "html_{$i}.html";
                     Storage::put("{$previewDir}/{$filename}", $html);
                     $zip->addFromString($filename, $html);
                 }
-                
                 $zip->close();
-            } else {
-                throw new \Exception("Gagal membuat file ZIP");
             }
-
-            // Simpan ke database
+    
             $upload = Upload::create([
                 'excel_file' => $dataPath,
                 'template_file' => $templateContent,
@@ -88,9 +140,8 @@ class HtmlGeneratorController extends Controller
                 'zip_path' => "results/{$zipName}",
                 'preview_path' => $previewDir,
             ]);
-
+    
             return redirect()->route('preview', $upload->id)->with('success', 'File berhasil digenerate!');
-            
         } catch (\Exception $e) {
             \Log::error($e->getMessage());
             return back()->withInput()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
@@ -135,5 +186,11 @@ class HtmlGeneratorController extends Controller
     {
         $uploads = Upload::latest()->paginate(10);
         return view('history', compact('uploads'));
+    }
+
+    // Tambahkan method ini untuk memudahkan pengguna melihat contoh template
+    public function exampleTemplate()
+    {
+        return view('example-template');
     }
 }
