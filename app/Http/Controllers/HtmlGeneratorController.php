@@ -32,84 +32,49 @@ class HtmlGeneratorController extends Controller
             $spreadsheet = IOFactory::load(Storage::path($dataPath));
             $worksheet = $spreadsheet->getActiveSheet();
     
-            // Extract headers
-            $headers = [];
-            $highestColumn = $worksheet->getHighestColumn();
-            $highestColumnIndex = Coordinate::columnIndexFromString($highestColumn);
-            
-            for ($col = 1; $col <= $highestColumnIndex; $col++) {
-                $header = $worksheet->getCellByColumnAndRow($col, 1)->getValue();
-                $headers[$col] = trim($header);
-            }
-            
-            // Get highest row
-            $highestRow = $worksheet->getHighestRow();
-            
-            // Initialize rows array
             $rows = [];
-            
-            // Create mapping of images by coordinates
-            $imageMapping = [];
-            $drawings = $worksheet->getDrawingCollection();
-            
-            foreach ($drawings as $drawing) {
-                $coordinates = $drawing->getCoordinates();
-                list($col, $row) = Coordinate::coordinateFromString($coordinates);
-                $colIndex = Coordinate::columnIndexFromString($col);
-                
-                // Get image content and convert to base64
-                $imageContents = null;
-                $imageExtension = 'png'; // Default extension
-                
-                if ($drawing instanceof \PhpOffice\PhpSpreadsheet\Worksheet\Drawing) {
-                    $zipReader = fopen($drawing->getPath(), 'r');
-                    if ($zipReader !== false) {
-                        $imageContents = stream_get_contents($zipReader);
-                        fclose($zipReader);
-                        
-                        // Get file extension
-                        $extension = pathinfo($drawing->getPath(), PATHINFO_EXTENSION);
-                        if (!empty($extension)) {
-                            $imageExtension = strtolower($extension);
-                        }
-                    }
-                } elseif ($drawing instanceof \PhpOffice\PhpSpreadsheet\Worksheet\MemoryDrawing) {
-                    ob_start();
-                    call_user_func(
-                        $drawing->getRenderingFunction(),
-                        $drawing->getImageResource()
-                    );
-                    $imageContents = ob_get_contents();
-                    ob_end_clean();
-                }
-                
-                if ($imageContents) {
-                    $base64 = 'data:image/' . $imageExtension . ';base64,' . base64_encode($imageContents);
-                    $imageMapping[$row][$colIndex] = $base64;
-                }
-            }
-            
-            // Extract data rows with text and images
-            for ($rowIndex = 2; $rowIndex <= $highestRow; $rowIndex++) {
+            $headers = [];
+    
+            foreach ($worksheet->getRowIterator() as $rowIndex => $row) {
+                $cellIterator = $row->getCellIterator();
+                $cellIterator->setIterateOnlyExistingCells(false);
                 $rowData = [];
-                
-                for ($colIndex = 1; $colIndex <= $highestColumnIndex; $colIndex++) {
-                    $value = $worksheet->getCellByColumnAndRow($colIndex, $rowIndex)->getValue();
-                    
-                    // If there's an image at this cell, use the image instead of text
-                    if (isset($imageMapping[$rowIndex][$colIndex])) {
-                        $value = $imageMapping[$rowIndex][$colIndex];
-                    }
-                    
-                    if (isset($headers[$colIndex])) {
-                        $rowData[$headers[$colIndex]] = $value;
+    
+                foreach ($cellIterator as $cellIndex => $cell) {
+                    $value = $cell->getValue();
+                    if ($rowIndex === 1) {
+                        $headers[] = trim($value);
+                    } else {
+                        $rowData[] = $value;
                     }
                 }
-                
-                $rows[] = $rowData;
+    
+                if ($rowIndex > 1) {
+                    $rows[] = array_combine($headers, $rowData);
+                }
             }
     
-            // ZIP generation
+            // Handle images
+            $drawings = $worksheet->getDrawingCollection();
+            foreach ($drawings as $drawing) {
+                $coordinates = $drawing->getCoordinates();
+                [$col, $row] = Coordinate::coordinateFromString($coordinates);
+                $imageData = null;
+    
+                // Convert image to base64
+                ob_start();
+                $drawing->getImageResource() && imagepng($drawing->getImageResource());
+                $imageData = ob_get_contents();
+                ob_end_clean();
+    
+                if ($imageData) {
+                    $base64 = 'data:image/png;base64,' . base64_encode($imageData);
+                    $colIndex = Coordinate::columnIndexFromString($col) - 1;
+                    $rows[$row - 2][$headers[$colIndex]] = $base64; // row -2 karena header dan index 0
+                }
+            }
+    
+            // ZIP generation (same as your code)
             $uploadId = uniqid();
             $previewDir = "previews/{$uploadId}";
             $zipName = "hasil_{$uploadId}.zip";
@@ -186,11 +151,5 @@ class HtmlGeneratorController extends Controller
     {
         $uploads = Upload::latest()->paginate(10);
         return view('history', compact('uploads'));
-    }
-
-    // Tambahkan method ini untuk memudahkan pengguna melihat contoh template
-    public function exampleTemplate()
-    {
-        return view('example-template');
     }
 }
