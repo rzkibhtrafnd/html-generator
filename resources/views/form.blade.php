@@ -34,6 +34,14 @@
                     @error('template_text')
                         <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                     @enderror
+                    <div class="mt-2 text-sm text-gray-600 bg-gray-100 border border-gray-300 rounded p-4">
+                        <p class="font-semibold mb-1">Format Variabel:</p>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>Gunakan <code>{{ '{{ NamaKolomExcel' }}}}</code> untuk menampilkan data dari kolom.</li>
+                            <li>Contoh: <code>{{ '{{ Nama' }}}}</code>, <code>{{ '{{ Email' }}}}</code>, <code>{{ '{{ Foto' }}}}</code></li>
+                            <li>Untuk gambar: <code>&lt;img src="{{ '{{ Foto' }}}}" alt="Foto"&gt;</code></li>
+                        </ul>
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-4">

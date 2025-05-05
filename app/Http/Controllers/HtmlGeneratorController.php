@@ -70,7 +70,7 @@ class HtmlGeneratorController extends Controller
                 if ($imageData) {
                     $base64 = 'data:image/png;base64,' . base64_encode($imageData);
                     $colIndex = Coordinate::columnIndexFromString($col) - 1;
-                    $rows[$row - 2][$headers[$colIndex]] = $base64; // row -2 karena header dan index 0
+                    $rows[$row - 2][$headers[$colIndex]] = $base64;
                 }
             }
     
