@@ -5,6 +5,8 @@
     <title>Riwayat Generate</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Tambahkan SweetAlert2 untuk konfirmasi hapus -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body class="font-inter bg-gray-50 min-h-screen">
     <div class="max-w-6xl mx-auto p-6">
@@ -20,14 +22,28 @@
                 </a>
             </div>
 
+            @if(session('success'))
+                <div class="mb-4 p-4 bg-green-100 text-green-700 rounded-lg">
+                    {{ session('success') }}
+                </div>
+            @endif
+
+            @if(session('error'))
+                <div class="mb-4 p-4 bg-red-100 text-red-700 rounded-lg">
+                    {{ session('error') }}
+                </div>
+            @endif
+
             <div class="overflow-x-auto rounded-lg border border-gray-200">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jumlah File</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File Excel</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unduh ZIP</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Preview</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -36,9 +52,15 @@
                                 <td class="px-6 py-4 whitespace-nowrap">{{ $u->created_at->format('d/m/Y H:i') }}</td>
                                 <td class="px-6 py-4 whitespace-nowrap">{{ $u->generated_count }}</td>
                                 <td class="px-6 py-4 whitespace-nowrap">
+                                    <a href="{{ route('history.download.excel', $u->id) }}" 
+                                       class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-full text-white bg-purple-600 hover:bg-purple-700 transition-colors">
+                                        Download Excel
+                                    </a>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
                                     <a href="{{ asset('storage/' . $u->zip_path) }}" 
                                        class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-full text-white bg-green-600 hover:bg-green-700 transition-colors">
-                                        Unduh
+                                        Unduh ZIP
                                     </a>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
@@ -47,10 +69,27 @@
                                          Preview
                                     </a>                                     
                                 </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex space-x-2">
+                                        <a href="{{ route('history.edit', $u->id) }}" 
+                                           class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-full text-white bg-yellow-600 hover:bg-yellow-700 transition-colors">
+                                            Edit
+                                        </a>
+                                        <form id="delete-form-{{ $u->id }}" action="{{ route('history.destroy', $u->id) }}" method="POST">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="button" 
+                                                    onclick="confirmDelete({{ $u->id }})" 
+                                                    class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-full text-white bg-red-600 hover:bg-red-700 transition-colors">
+                                                Hapus
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-6 py-4 text-center text-gray-500">Tidak ada riwayat</td>
+                                <td colspan="6" class="px-6 py-4 text-center text-gray-500">Tidak ada riwayat</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -62,5 +101,24 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function confirmDelete(id) {
+            Swal.fire({
+                title: 'Apakah Anda yakin?',
+                text: "Data yang dihapus tidak dapat dikembalikan!",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Ya, hapus!',
+                cancelButtonText: 'Batal'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    document.getElementById('delete-form-' + id).submit();
+                }
+            });
+        }
+    </script>
 </body>
 </html>
